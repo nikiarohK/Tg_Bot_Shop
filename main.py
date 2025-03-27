@@ -132,14 +132,11 @@ async def show_delivery_info(message: types.Message):
     await delete_user_message(message)
     
     delivery_text = (
-        "Минимальная сумма заказа 690 рублей + доставка!\n"
-        "Скидки при заказе на сумму 690 рублей - НЕ УЧИТЫВАЮТСЯ!\n\n"
-        "Стоимость доставки в пределах МКАД - 590 руб\n"
-        "При заказе на сумму от 10000 руб - скидка 10%!\n\n"
-        "Стоимость доставки за пределы МКАД - от 790 до 1290 руб\n"
-        "Точная стоимость доставки за МКАД обговаривается с оператором!\n\n"
-        "Оплата через СберБанк онлайн (без комиссии)\n"
-        "Вы можете оплатить ваш заказ через СберБанк онлайн курьеру по факту получения заказа!"
+        "Доставка в пределах МКАД 0 рублей!\n\n"
+        "Доставка от 15 минут!\n\n"
+        "Минимальная сумма заказа от 400 рублей!\n\n"
+        "ОПЛАТА наличными, переводом, по факту получения заказа!\n\n"
+        "КУРЬЕР МОЖЕТ ПОПРОСИТЬ ПЕРЕВОД ЗАРАНЕЕ, ЕСЛИ ЗАКАЗЫВАЕТЕ ПЕРВЫЙ РАЗ ЧЕРЕЗ НАШ БОТ!"
     )
     
     sent_message = await bot.send_message(chat_id, delivery_text)
@@ -785,18 +782,12 @@ async def checkout(callback: types.CallbackQuery, state: FSMContext):
             total += quantity * product['price']
     
     order_text += f"\nИтого: {total}₽\n\n"
-    order_text += "Пожалуйста, укажите ваш номер телефона для связи:"
+    order_text += "Пожалуйста, введите ваш номер телефона в формате +79991234567:"
     
-    # Создаем клавиатуру с двумя вариантами ввода номера
+    # Создаем клавиатуру только с кнопкой "Вернуться в главное меню"
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [
-                KeyboardButton(text="Отправить номер телефона", request_contact=True),
-                KeyboardButton(text="Ввести номер вручную")
-            ],
-            [
-                KeyboardButton(text="Вернуться в главное меню")
-            ]
+            [KeyboardButton(text="Вернуться в главное меню")]
         ],
         resize_keyboard=True
     )
@@ -807,33 +798,9 @@ async def checkout(callback: types.CallbackQuery, state: FSMContext):
         reply_markup=keyboard
     )
     
-    # Устанавливаем состояние ожидания выбора способа ввода номера
-    await state.set_state(Form.waiting_for_phone_choice)
+    # Устанавливаем состояние ожидания номера телефона
+    await state.set_state(Form.waiting_for_phone_manual)
     await callback.answer()
-
-@dp.message(Form.waiting_for_phone_choice)
-async def process_phone_choice(message: types.Message, state: FSMContext):
-    """Обработка выбора способа ввода номера"""
-    if message.text == "Ввести номер вручную":
-        await message.reply(
-            "Пожалуйста, введите ваш номер телефона в формате +79991234567:",
-            reply_markup=ReplyKeyboardMarkup(
-                keyboard=[
-                    [KeyboardButton(text="Вернуться в главное меню")]
-                ],
-                resize_keyboard=True
-            )
-        )
-        await state.set_state(Form.waiting_for_phone_manual)
-    elif message.contact:
-        # Обработка номера из контакта
-        phone_number = message.contact.phone_number
-        await save_phone_and_request_address(message, phone_number, state)
-    elif message.text == "Вернуться в главное меню":
-        await state.clear()
-        await back_to_main_menu(message)
-    else:
-        await message.reply("Пожалуйста, выберите способ ввода номера:")
 
 @dp.message(Form.waiting_for_phone_manual)
 async def process_manual_phone(message: types.Message, state: FSMContext):
@@ -850,8 +817,25 @@ async def process_manual_phone(message: types.Message, state: FSMContext):
         await message.reply("Пожалуйста, введите корректный номер телефона (например, +79991234567):")
         return
     
-    await save_phone_and_request_address(message, phone_number, state)
-
+    # Сохраняем номер телефона
+    user_id = message.from_user.id
+    if user_id not in user_data:
+        user_data[user_id] = {}
+    user_data[user_id]['phone'] = phone_number
+    
+    # Запрашиваем адрес доставки
+    await message.reply(
+        "Спасибо! Теперь укажите, пожалуйста, адрес доставки:",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="Вернуться в главное меню")]
+            ],
+            resize_keyboard=True
+        )
+    )
+    
+    # Переходим в состояние ожидания адреса
+    await state.set_state(Form.waiting_for_address)
 async def save_phone_and_request_address(message: types.Message, phone_number: str, state: FSMContext):
     """Сохраняет номер и запрашивает адрес (общая функция)"""
     user_id = message.from_user.id
