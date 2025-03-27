@@ -38,14 +38,14 @@ class Form(StatesGroup):
 def get_main_keyboard():
     """Создает главную клавиатуру"""
     builder = ReplyKeyboardBuilder()
-    builder.row(KeyboardButton(text="🛍️ Каталог"))
+    builder.row(KeyboardButton(text="Каталог"))
     builder.row(
-        KeyboardButton(text="🛒 Корзина"),
-        KeyboardButton(text="🚚 Доставка")
+        KeyboardButton(text="Корзина"),
+        KeyboardButton(text="Доставка")
     )
     builder.row(
-        KeyboardButton(text="💬 Онлайн-чат"),
-        KeyboardButton(text="📞 Позвонить")
+        KeyboardButton(text="Онлайн-чат"),
+        KeyboardButton(text="Позвонить")
     )
     return builder.as_markup(resize_keyboard=True)
 
@@ -95,7 +95,7 @@ async def cmd_start(message: types.Message):
     await clean_other_messages(chat_id, user_id)
     await delete_user_message(message)
 
-@dp.message(F.text == "🛍️ Каталог")
+@dp.message(F.text == "Каталог")
 async def show_catalog_menu(message: types.Message):
     """Показ меню каталога"""
     user_id = message.from_user.id
@@ -121,7 +121,7 @@ async def show_catalog_menu(message: types.Message):
     )
     user_data[user_id]['other_messages'].append(sent_message.message_id)
 
-@dp.message(F.text == "🚚 Доставка")
+@dp.message(F.text == "Доставка")
 async def show_delivery_info(message: types.Message):
     """Информация о доставке"""
     user_id = message.from_user.id
@@ -145,7 +145,7 @@ async def show_delivery_info(message: types.Message):
     sent_message = await bot.send_message(chat_id, delivery_text)
     user_data[user_id]['other_messages'].append(sent_message.message_id)
 
-@dp.message(F.text == "📞 Позвонить")
+@dp.message(F.text == "Позвонить")
 async def show_phone_number(message: types.Message):
     """Показ номера телефона"""
     user_id = message.from_user.id
@@ -161,7 +161,7 @@ async def show_phone_number(message: types.Message):
     )
     user_data[user_id]['other_messages'].append(sent_message.message_id)
 
-@dp.message(F.text == "💬 Онлайн-чат")
+@dp.message(F.text == "Онлайн-чат")
 async def show_online_chat(message: types.Message):
     """Ссылка на онлайн-чат"""
     user_id = message.from_user.id
@@ -174,7 +174,7 @@ async def show_online_chat(message: types.Message):
     sent_message = await bot.send_message(chat_id, "Перейдите в чат с оператором: @nikiarohk")
     user_data[user_id]['other_messages'].append(sent_message.message_id)
 
-@dp.message(F.text == "🛒 Корзина")
+@dp.message(F.text == "Корзина")
 async def show_cart(message: types.Message):
     """Минималистичная корзина с редактированием"""
     user_id = message.from_user.id
@@ -185,11 +185,11 @@ async def show_cart(message: types.Message):
     await delete_user_message(message)
     
     if not user_data.get(user_id, {}).get('cart'):
-        sent_message = await bot.send_message(chat_id, "🛒 Корзина пуста")
+        sent_message = await bot.send_message(chat_id, "Корзина пуста")
         user_data[user_id]['other_messages'].append(sent_message.message_id)
         return
     
-    cart_text = "🛒 Ваша корзина:\n\n"
+    cart_text = "Ваша корзина:\n\n"
     total = 0
     
     # Строим текст корзины
@@ -199,7 +199,7 @@ async def show_cart(message: types.Message):
             cart_text += f"{product['name']}\n{quantity} × {product['price']}₽ = {quantity * product['price']}₽\n\n"
             total += quantity * product['price']
     
-    cart_text += f"💳 Итого: {total}₽"
+    cart_text += f"Итого: {total}₽"
     
     # Создаем компактную клавиатуру
     builder = InlineKeyboardBuilder()
@@ -209,14 +209,14 @@ async def show_cart(message: types.Message):
         product = get_product(product_id)
         if product:
             builder.row(InlineKeyboardButton(
-                text=f"✏️ {product['name']}",
+                text=f"Изменить {product['name']}",
                 callback_data=f"edit_{product_id}"
             ))
     
     # Основные кнопки
     builder.row(
-        InlineKeyboardButton(text="✅ Оформить", callback_data="checkout"),
-        InlineKeyboardButton(text="🗑️ Очистить", callback_data="clear_cart")
+        InlineKeyboardButton(text="Оформить", callback_data="checkout"),
+        InlineKeyboardButton(text="Очистить", callback_data="clear_cart")
     )
     
     sent_message = await bot.send_message(
@@ -243,19 +243,19 @@ async def edit_product(callback: types.CallbackQuery):
     # Минималистичное меню редактирования
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="➖", callback_data=f"dec_{product_id}"),  # Упростил callback_data
+            InlineKeyboardButton(text="-", callback_data=f"dec_{product_id}"),
             InlineKeyboardButton(text=f"{quantity}", callback_data="no_action"),
-            InlineKeyboardButton(text="➕", callback_data=f"inc_{product_id}")   # Упростил callback_data
+            InlineKeyboardButton(text="+", callback_data=f"inc_{product_id}")
         ],
         [
-            InlineKeyboardButton(text="❌ Удалить", callback_data=f"del_{product_id}"),  # Упростил callback_data
-            InlineKeyboardButton(text="← Назад", callback_data="back_to_cart")
+            InlineKeyboardButton(text="Удалить", callback_data=f"del_{product_id}"),
+            InlineKeyboardButton(text="Назад", callback_data="back_to_cart")
         ]
     ])
     
     try:
         await callback.message.edit_text(
-            f"✏️ Редактирование:\n{product['name']}\n{product['price']}₽/шт",
+            f"Редактирование:\n{product['name']}\n{product['price']}₽/шт",
             reply_markup=keyboard
         )
     except Exception as e:
@@ -294,7 +294,7 @@ async def decrease_product(callback: types.CallbackQuery):
         else:
             del user_data[user_id]['cart'][product_id]
             try:
-                await callback.message.edit_text("🛒 Корзина пуста")
+                await callback.message.edit_text("Корзина пуста")
             except Exception as e:
                 logger.error(f"Ошибка при обновлении сообщения: {e}")
     
@@ -337,7 +337,7 @@ async def delete_product(callback: types.CallbackQuery):
         await edit_product(callback)
     else:
         # Если корзина пуста, возвращаемся к основной корзине
-        await callback.message.edit_text("🛒 Корзина пуста")
+        await callback.message.edit_text("Корзина пуста")
     await callback.answer("Товар удален")
     
 async def refresh_cart_message(callback: types.CallbackQuery):
@@ -349,7 +349,7 @@ async def refresh_cart_message(callback: types.CallbackQuery):
         await callback.message.edit_text("Ваша корзина пуста!")
         return
     
-    cart_text = "🛒 Ваша корзина:\n\n"
+    cart_text = "Ваша корзина:\n\n"
     total = 0
     for product_id, quantity in user_data[user_id]['cart'].items():
         product = get_product(product_id)
@@ -366,28 +366,28 @@ async def refresh_cart_message(callback: types.CallbackQuery):
         if product:
             builder.row(
                 InlineKeyboardButton(
-                    text=f"➖ {product['name']}",
+                    text=f"- {product['name']}",
                     callback_data=f"cart_decrease_{product_id}"
                 ),
                 InlineKeyboardButton(
-                    text=f"➕ {product['name']}",
+                    text=f"+ {product['name']}",
                     callback_data=f"cart_increase_{product_id}"
                 )
             )
             builder.row(
                 InlineKeyboardButton(
-                    text=f"❌ Удалить {product['name']}",
+                    text=f"Удалить {product['name']}",
                     callback_data=f"cart_remove_{product_id}"
                 )
             )
     
     builder.row(
         InlineKeyboardButton(
-            text="✅ Оформить заказ",
+            text="Оформить заказ",
             callback_data="checkout"
         ),
         InlineKeyboardButton(
-            text="🗑️ Очистить корзину",
+            text="Очистить корзину",
             callback_data="clear_cart"
         )
     )
@@ -486,9 +486,9 @@ async def show_product(callback: types.CallbackQuery):
         ],
         [InlineKeyboardButton(text="Добавить в корзину", callback_data=f"add_{product_id}")],
         [
-            InlineKeyboardButton(text="Добавили ? Оформляем заказ ?", callback_data="checkout")
+            InlineKeyboardButton(text="Добавили? Оформляем заказ?", callback_data="checkout")
         ],
-        [InlineKeyboardButton(text="... или продолжить покупки ?", callback_data="continue_shopping")],
+        [InlineKeyboardButton(text="... или продолжить покупки?", callback_data="continue_shopping")],
         [InlineKeyboardButton(text="Назад", callback_data=f"category_{product['category']}")]
     ])
     
@@ -578,9 +578,9 @@ async def add_to_cart(callback: types.CallbackQuery):
             ],
             [InlineKeyboardButton(text="Добавить в корзину", callback_data=f"add_{product_id}")],
             [
-                InlineKeyboardButton(text="Добавили ? Оформляем заказ ?", callback_data="checkout")
+                InlineKeyboardButton(text="Добавили? Оформляем заказ?", callback_data="checkout")
             ],
-            [InlineKeyboardButton(text="... или продолжить покупки ?", callback_data="continue_shopping")],
+            [InlineKeyboardButton(text="... или продолжить покупки?", callback_data="continue_shopping")],
             [InlineKeyboardButton(text="Назад", callback_data=f"category_{product['category']}")]
         ])
         try:
@@ -651,9 +651,9 @@ async def update_product_message(callback: types.CallbackQuery, product_id: int)
         ],
         [InlineKeyboardButton(text="Добавить в корзину", callback_data=f"add_{product_id}")],
         [
-            InlineKeyboardButton(text="Добавили ? Оформляем заказ ?", callback_data="checkout")
+            InlineKeyboardButton(text="Добавили? Оформляем заказ?", callback_data="checkout")
         ],
-        [InlineKeyboardButton(text="... или продолжить покупки ?", callback_data="continue_shopping")],
+        [InlineKeyboardButton(text="... или продолжить покупки?", callback_data="continue_shopping")],
         [InlineKeyboardButton(text="Назад", callback_data=f"category_{product['category']}")]
     ])
     
@@ -687,7 +687,7 @@ async def checkout(callback: types.CallbackQuery, state: FSMContext):
         return
     
     # Формируем текст заказа
-    order_text = "📝 Ваш заказ:\n\n"
+    order_text = "Ваш заказ:\n\n"
     total = 0
     for product_id, quantity in user_data[user_id]['cart'].items():
         product = get_product(product_id)
@@ -702,11 +702,11 @@ async def checkout(callback: types.CallbackQuery, state: FSMContext):
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="📞 Отправить номер телефона", request_contact=True),
-                KeyboardButton(text="📱 Ввести номер вручную")
+                KeyboardButton(text="Отправить номер телефона", request_contact=True),
+                KeyboardButton(text="Ввести номер вручную")
             ],
             [
-                KeyboardButton(text="🏠 Вернуться в главное меню")
+                KeyboardButton(text="Вернуться в главное меню")
             ]
         ],
         resize_keyboard=True
@@ -725,12 +725,12 @@ async def checkout(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(Form.waiting_for_phone_choice)
 async def process_phone_choice(message: types.Message, state: FSMContext):
     """Обработка выбора способа ввода номера"""
-    if message.text == "📱 Ввести номер вручную":
+    if message.text == "Ввести номер вручную":
         await message.reply(
             "Пожалуйста, введите ваш номер телефона в формате +79991234567:",
             reply_markup=ReplyKeyboardMarkup(
                 keyboard=[
-                    [KeyboardButton(text="🏠 Вернуться в главное меню")]
+                    [KeyboardButton(text="Вернуться в главное меню")]
                 ],
                 resize_keyboard=True
             )
@@ -740,7 +740,7 @@ async def process_phone_choice(message: types.Message, state: FSMContext):
         # Обработка номера из контакта
         phone_number = message.contact.phone_number
         await save_phone_and_request_address(message, phone_number, state)
-    elif message.text == "🏠 Вернуться в главное меню":
+    elif message.text == "Вернуться в главное меню":
         await state.clear()
         await back_to_main_menu(message)
     else:
@@ -749,7 +749,7 @@ async def process_phone_choice(message: types.Message, state: FSMContext):
 @dp.message(Form.waiting_for_phone_manual)
 async def process_manual_phone(message: types.Message, state: FSMContext):
     """Обработка номера, введенного вручную"""
-    if message.text == "🏠 Вернуться в главное меню":
+    if message.text == "Вернуться в главное меню":
         await state.clear()
         await back_to_main_menu(message)
         return
@@ -777,7 +777,7 @@ async def save_phone_and_request_address(message: types.Message, phone_number: s
         "Спасибо! Теперь укажите, пожалуйста, адрес доставки:",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
-                [KeyboardButton(text="🏠 Вернуться в главное меню")]
+                [KeyboardButton(text="Вернуться в главное меню")]
             ],
             resize_keyboard=True
         )
@@ -792,7 +792,7 @@ async def process_address(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     chat_id = message.chat.id
     
-    if message.text == "🏠 Вернуться в главное меню":
+    if message.text == "Вернуться в главное меню":
         await state.clear()
         await back_to_main_menu(message)
         return
@@ -805,7 +805,7 @@ async def process_address(message: types.Message, state: FSMContext):
     user_data[user_id]['address'] = address
     
     # Формируем финальное сообщение с заказом
-    order_text = "✅ Ваш заказ принят!\n\n"
+    order_text = "Ваш заказ принят!\n\n"
     total = 0
     for product_id, quantity in user_data[user_id]['cart'].items():
         product = get_product(product_id)
@@ -814,8 +814,8 @@ async def process_address(message: types.Message, state: FSMContext):
             total += quantity * product['price']
     
     order_text += f"\nИтого: {total}₽\n\n"
-    order_text += f"📞 Номер телефона: {user_data[user_id].get('phone', 'не указан')}\n"
-    order_text += f"🏠 Адрес доставки: {address}\n\n"
+    order_text += f"Номер телефона: {user_data[user_id].get('phone', 'не указан')}\n"
+    order_text += f"Адрес доставки: {address}\n\n"
     order_text += "С вами свяжется оператор для подтверждения заказа."
     
     # Очищаем корзину после оформления
@@ -829,7 +829,7 @@ async def process_address(message: types.Message, state: FSMContext):
     
     # Сбрасываем состояние
     await state.clear()
-@dp.message(F.text == "🏠 Вернуться в главное меню")
+@dp.message(F.text == "Вернуться в главное меню")
 async def back_to_main_menu(message: types.Message):
     """Обработчик возврата в главное меню"""
     user_id = message.from_user.id
