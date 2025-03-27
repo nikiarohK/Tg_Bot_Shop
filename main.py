@@ -176,7 +176,7 @@ async def show_online_chat(message: types.Message):
 
 @dp.message(F.text == "Корзина")
 async def show_cart(message: types.Message):
-    """Минималистичная корзина с редактированием"""
+    """Показ корзины с товарами и общей суммой"""
     user_id = message.from_user.id
     chat_id = message.chat.id
     
@@ -189,130 +189,179 @@ async def show_cart(message: types.Message):
         user_data[user_id]['other_messages'].append(sent_message.message_id)
         return
     
-    cart_text = "Ваша корзина:\n\n"
+    # Формируем текст корзины
+    cart_text = "Сейчас в Вашей корзине:\n\n"
     total = 0
     
-    # Строим текст корзины
     for product_id, quantity in user_data[user_id]['cart'].items():
         product = get_product(product_id)
         if product:
-            cart_text += f"{product['name']}\n{quantity} × {product['price']}₽ = {quantity * product['price']}₽\n\n"
-            total += quantity * product['price']
+            product_total = quantity * product['price']
+            cart_text += f"{product['name']}: {product['price']} Руб x {quantity}\n"
+            total += product_total
     
-    cart_text += f"Итого: {total}₽"
+    cart_text += f"\nСумма без доставки: {total} Руб"
     
-    # Создаем компактную клавиатуру
-    builder = InlineKeyboardBuilder()
-    
-    # Для каждого товара добавляем кнопку редактирования
-    for product_id in user_data[user_id]['cart'].keys():
-        product = get_product(product_id)
-        if product:
-            builder.row(InlineKeyboardButton(
-                text=f"Изменить {product['name']}",
-                callback_data=f"edit_{product_id}"
-            ))
-    
-    # Основные кнопки
-    builder.row(
-        InlineKeyboardButton(text="Оформить", callback_data="checkout"),
-        InlineKeyboardButton(text="Очистить", callback_data="clear_cart")
-    )
+    # Создаем инлайн-клавиатуру
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Редактировать", callback_data="edit_cart"),
+            InlineKeyboardButton(text="Оформить заказ", callback_data="checkout")
+        ]
+    ])
     
     sent_message = await bot.send_message(
         chat_id,
         cart_text,
-        reply_markup=builder.as_markup()
+        reply_markup=keyboard
     )
     user_data[user_id]['other_messages'].append(sent_message.message_id)
 
-@dp.callback_query(F.data.startswith("edit_"))
-async def edit_product(callback: types.CallbackQuery):
-    """Редактирование конкретного товара"""
-    product_id = int(callback.data.split("_")[1])
-    product = get_product(product_id)
-    user_id = callback.from_user.id
-    
-    if not product or user_id not in user_data:
-        await callback.answer()
-        return
-    
-    # Получаем текущее количество из корзины
-    quantity = user_data[user_id]['cart'].get(product_id, 1)
-    
-    # Минималистичное меню редактирования
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="-", callback_data=f"dec_{product_id}"),
-            InlineKeyboardButton(text=f"{quantity}", callback_data="no_action"),
-            InlineKeyboardButton(text="+", callback_data=f"inc_{product_id}")
-        ],
-        [
-            InlineKeyboardButton(text="Удалить", callback_data=f"del_{product_id}"),
-            InlineKeyboardButton(text="Назад", callback_data="back_to_cart")
-        ]
-    ])
-    
-    try:
-        await callback.message.edit_text(
-            f"Редактирование:\n{product['name']}\n{product['price']}₽/шт",
-            reply_markup=keyboard
-        )
-    except Exception as e:
-        logger.error(f"Ошибка при редактировании сообщения: {e}")
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("inc_"))
-async def increase_product(callback: types.CallbackQuery):
-    """Увеличение количества товара"""
-    product_id = int(callback.data.split("_")[1])
-    user_id = callback.from_user.id
-    
-    if user_id in user_data and product_id in user_data[user_id]['cart']:
-        user_data[user_id]['cart'][product_id] += 1
-    
-    try:
-        # Обновляем сообщение с новым количеством
-        await edit_product(callback)
-    except Exception as e:
-        logger.error(f"Ошибка при обновлении сообщения: {e}")
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("dec_"))
-async def decrease_product(callback: types.CallbackQuery):
-    """Уменьшение количества товара"""
-    product_id = int(callback.data.split("_")[1])
-    user_id = callback.from_user.id
-    
-    if user_id in user_data and product_id in user_data[user_id]['cart']:
-        if user_data[user_id]['cart'][product_id] > 1:
-            user_data[user_id]['cart'][product_id] -= 1
-            try:
-                await edit_product(callback)
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения: {e}")
-        else:
-            del user_data[user_id]['cart'][product_id]
-            try:
-                await callback.message.edit_text("Корзина пуста")
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении сообщения: {e}")
-    
-    await callback.answer()
-
-@dp.callback_query(F.data == "back_to_cart")
-async def back_to_cart(callback: types.CallbackQuery):
-    """Возврат к просмотру корзины"""
+@dp.callback_query(F.data == "edit_cart")
+async def edit_cart(callback: types.CallbackQuery):
+    """Обработчик кнопки Редактировать с отображением количества"""
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
     
-    # Удаляем текущее сообщение
+    if not user_data.get(user_id, {}).get('cart'):
+        await callback.answer("Корзина пуста")
+        return
+    
+    # Удаляем предыдущее сообщение
     try:
         await bot.delete_message(chat_id=chat_id, message_id=callback.message.message_id)
     except Exception as e:
         logger.error(f"Ошибка при удалении сообщения: {e}")
     
-    # Показываем корзину заново
+    # Создаем клавиатуру с товарами для редактирования
+    builder = InlineKeyboardBuilder()
+    
+    for product_id, quantity in user_data[user_id]['cart'].items():
+        product = get_product(product_id)
+        if product:
+            builder.add(InlineKeyboardButton(
+                text=f"{product['name']} ({quantity})",  # Добавляем количество в скобках
+                callback_data=f"edit_item_{product_id}"
+            ))
+    
+    builder.adjust(1)
+    
+    # Добавляем кнопку "Назад"
+    builder.row(InlineKeyboardButton(
+        text="Назад",
+        callback_data="back_to_cart_from_edit"
+    ))
+    
+    sent_message = await bot.send_message(
+        chat_id,
+        "Выберите товар, который нужно изменить:",
+        reply_markup=builder.as_markup()
+    )
+    user_data[user_id]['other_messages'].append(sent_message.message_id)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("edit_item_"))
+async def edit_item(callback: types.CallbackQuery):
+    """Отображение товара с фото и кнопками редактирования"""
+    try:
+        product_id = int(callback.data.split("_")[2])
+    except IndexError:
+        product_id = int(callback.data.split("_")[1])
+    
+    product = get_product(product_id)
+    user_id = callback.from_user.id
+    
+    if not product or user_id not in user_data or product_id not in user_data[user_id]['cart']:
+        await callback.answer("Товар не найден")
+        return
+    
+    quantity = user_data[user_id]['cart'][product_id]
+    total_price = quantity * product['price']
+    
+    # Формируем текст сообщения
+    text = (
+        f"Просмотр товара в категории: {get_categories().get(product['category'], 'Без категории')}\n\n"
+        f"<b>{product['name']}</b>\n\n"
+        f"Цена: {product['price']} Руб.\n"
+        f"Количество: {quantity}\n"
+        f"Итого: {total_price} Руб."
+    )
+    
+    # Создаем клавиатуру для редактирования с новой структурой
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        # Первая строка: цена * количество = итоговая цена
+        [
+            InlineKeyboardButton(
+                text=f"{product['price']} Руб × {quantity} = {total_price} Руб", 
+                callback_data="no_action"
+            )
+        ],
+        # Вторая строка: кнопки - + Удалить
+        [
+            InlineKeyboardButton(text="-", callback_data=f"dec_item_{product_id}"),
+            InlineKeyboardButton(text="+", callback_data=f"inc_item_{product_id}"),
+            InlineKeyboardButton(text="Удалить", callback_data=f"del_item_{product_id}")
+        ],
+        # Третья строка: Оформить заказ
+        [
+            InlineKeyboardButton(text="Оформить заказ", callback_data="checkout")
+        ],
+        # Четвертая строка: Сохранить и вернуться в корзину
+        [
+            InlineKeyboardButton(text="Сохранить и вернуться в корзину", callback_data="back_to_cart_from_edit")
+        ]
+    ])
+    
+    try:
+        # Проверяем, есть ли фото товара
+        image_path = product.get('image_url')
+        
+        # Если это первое открытие товара (не редактирование)
+        if not callback.message.photo and image_path and os.path.exists(image_path):
+            photo = FSInputFile(image_path)
+            await callback.message.delete()
+            sent_message = await bot.send_photo(
+                chat_id=callback.message.chat.id,
+                photo=photo,
+                caption=text,
+                reply_markup=keyboard
+            )
+            # Сохраняем ID сообщения
+            if user_id not in user_data:
+                user_data[user_id] = {'main_message_id': None, 'other_messages': [], 'cart': {}}
+            user_data[user_id]['other_messages'].append(sent_message.message_id)
+        else:
+            # Если сообщение уже содержит фото - редактируем только подпись
+            if callback.message.photo:
+                await callback.message.edit_caption(
+                    caption=text,
+                    reply_markup=keyboard
+                )
+            else:
+                # Если фото нет - редактируем текст сообщения
+                await callback.message.edit_text(
+                    text=text,
+                    reply_markup=keyboard
+                )
+    except Exception as e:
+        logger.error(f"Ошибка при отображении товара: {e}")
+        await callback.answer("Произошла ошибка при отображении товара")
+    finally:
+        await callback.answer()
+
+@dp.callback_query(F.data == "back_to_cart_from_edit")
+async def back_to_cart_from_edit(callback: types.CallbackQuery):
+    """Обработчик кнопки 'Вернуться в корзину' из режима редактирования"""
+    user_id = callback.from_user.id
+    chat_id = callback.message.chat.id
+    
+    # Удаляем текущее сообщение с редактированием товара
+    try:
+        await bot.delete_message(chat_id=chat_id, message_id=callback.message.message_id)
+    except Exception as e:
+        logger.error(f"Ошибка при удалении сообщения: {e}")
+    
+    # Создаем временное сообщение для вызова show_cart
     fake_message = types.Message(
         message_id=0,
         date=0,
@@ -323,22 +372,62 @@ async def back_to_cart(callback: types.CallbackQuery):
     await show_cart(fake_message)
     await callback.answer()
 
-@dp.callback_query(F.data.startswith("del_"))
-async def delete_product(callback: types.CallbackQuery):
-    """Удаление товара из корзины"""
-    product_id = int(callback.data.split("_")[1])
+@dp.callback_query(F.data.startswith("dec_item_"))
+async def decrease_product(callback: types.CallbackQuery):
+    """Уменьшение количества товара"""
+    try:
+        product_id = int(callback.data.split("_")[2])
+    except IndexError:
+        product_id = int(callback.data.split("_")[1])
+    
     user_id = callback.from_user.id
     
-    if user_id in user_data and product_id in user_data[user_id]['cart']:
-        del user_data[user_id]['cart'][product_id]
+    if user_id in user_data and 'cart' in user_data[user_id]:
+        if product_id in user_data[user_id]['cart']:
+            if user_data[user_id]['cart'][product_id] > 1:
+                user_data[user_id]['cart'][product_id] -= 1
+                await edit_item(callback)
+            else:
+                del user_data[user_id]['cart'][product_id]
+                await callback.answer("Товар удален")
+                await back_to_edit_cart(callback)
     
-    # Проверяем, остались ли еще товары в корзине
-    if user_data[user_id].get('cart'):
-        await edit_product(callback)
-    else:
-        # Если корзина пуста, возвращаемся к основной корзине
-        await callback.message.edit_text("Корзина пуста")
-    await callback.answer("Товар удален")
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("inc_item_"))
+async def increase_product(callback: types.CallbackQuery):
+    """Увеличение количества товара"""
+    try:
+        product_id = int(callback.data.split("_")[2])
+    except IndexError:
+        product_id = int(callback.data.split("_")[1])
+    
+    user_id = callback.from_user.id
+    
+    if user_id in user_data and 'cart' in user_data[user_id]:
+        if product_id in user_data[user_id]['cart']:
+            user_data[user_id]['cart'][product_id] += 1
+            await edit_item(callback)
+    
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("del_item_"))
+async def remove_product(callback: types.CallbackQuery):
+    """Полное удаление товара из корзины"""
+    try:
+        product_id = int(callback.data.split("_")[2])
+    except IndexError:
+        product_id = int(callback.data.split("_")[1])
+    
+    user_id = callback.from_user.id
+    
+    if user_id in user_data and 'cart' in user_data[user_id]:
+        if product_id in user_data[user_id]['cart']:
+            del user_data[user_id]['cart'][product_id]
+            await callback.answer("Товар удален")
+            await back_to_edit_cart(callback)
+    
+    await callback.answer()
     
 async def refresh_cart_message(callback: types.CallbackQuery):
     """Обновляет сообщение с корзиной"""
