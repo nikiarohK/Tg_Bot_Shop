@@ -891,6 +891,11 @@ async def process_address(message: types.Message, state: FSMContext):
     order_text += f"Адрес доставки: {address}\n\n"
     order_text += "С вами свяжется оператор для подтверждения заказа."
     
+    # Пытаемся сохранить заказ в Google Таблицу
+    success = await add_order_to_sheet(user_data, user_id)
+    if not success:
+        order_text += "\n\n⚠ Произошла ошибка при сохранении заказа. Пожалуйста, свяжитесь с оператором."
+    
     # Очищаем корзину после оформления
     user_data[user_id]['cart'] = {}
     
@@ -902,6 +907,7 @@ async def process_address(message: types.Message, state: FSMContext):
     
     # Сбрасываем состояние
     await state.clear()
+    
 @dp.message(F.text == "Вернуться в главное меню")
 async def back_to_main_menu(message: types.Message):
     """Обработчик возврата в главное меню"""
@@ -933,6 +939,72 @@ async def clear_cart(callback: types.CallbackQuery):
     )
     await show_cart(fake_message)
 
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
+from config import GOOGLE_SHEETS_CREDENTIALS_FILE, GOOGLE_SHEET_NAME, GOOGLE_SHEET_WORKSHEET
+
+def setup_google_sheets():
+    """Настройка подключения к Google Sheets"""
+    scope = ['https://spreadsheets.google.com/feeds',
+             'https://www.googleapis.com/auth/drive']
+    creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_CREDENTIALS_FILE, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open(GOOGLE_SHEET_NAME).worksheet(GOOGLE_SHEET_WORKSHEET)
+    return sheet
+
+async def add_order_to_sheet(user_data: dict, user_id: int):
+    """Добавление заказа с автоподбором ширины для столбцов Товары и Адрес"""
+    try:
+        sheet = setup_google_sheets()
+        
+        # Получаем данные
+        user_info = user_data.get(user_id, {})
+        cart = user_info.get('cart', {})
+        phone = user_info.get('phone', 'не указан')
+        address = user_info.get('address', 'не указан')
+        
+        # Формируем список товаров
+        products = []
+        total = 0
+        for product_id, quantity in cart.items():
+            product = get_product(product_id)
+            if product:
+                product_total = quantity * product['price']
+                products.append(
+                    f"• {product['name']} ({quantity}шт × {product['price']}₽ = {product_total}₽"
+                )
+                total += product_total
+        
+        # Подготавливаем данные
+        order_data = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            phone,
+            address,  # Адрес (будет динамически подстраиваться)
+            "\n".join(products),  # Товары с переносами
+            f"{total}₽"
+        ]
+        
+        # Добавляем строку
+        sheet.append_row(order_data)
+        
+        # Настройки форматирования
+        last_row = len(sheet.get_all_values())
+        
+        # Для столбца C (Адрес) и D (Товары)
+        sheet.format(f"C{last_row}:D{last_row}", {
+            "wrapStrategy": "WRAP",
+            "verticalAlignment": "TOP"
+        })
+        
+        # Автоподбор ширины только для нужных столбцов (C и D)
+        sheet.columns_auto_resize(2, 3)  # Столбцы C (2) и D (3)
+        
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при добавлении заказа: {e}")
+        return False
+    
 async def main():
     initialize_database()
     await dp.start_polling(bot)
