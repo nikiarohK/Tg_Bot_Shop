@@ -1,12 +1,11 @@
 import sqlite3
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Union
 
 def create_tables():
     """Создает таблицы в базе данных"""
     conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     
-    # Создаем таблицу categories (IF NOT EXISTS для надежности)
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -15,7 +14,6 @@ def create_tables():
     )
     ''')
     
-    # Создаем таблицу products
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS products (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,16 +33,19 @@ def add_category(category_id: str, name: str) -> bool:
     conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     try:
-        cursor.execute('INSERT OR IGNORE INTO categories (category_id, name) VALUES (?, ?)', (category_id, name))
+        cursor.execute('INSERT INTO categories (category_id, name) VALUES (?, ?)', (category_id, name))
         conn.commit()
         return True
+    except sqlite3.IntegrityError:
+        # Категория уже существует
+        return False
     except sqlite3.Error as e:
         print(f"Ошибка при добавлении категории: {e}")
         return False
     finally:
         conn.close()
 
-def add_product(name: str, price: int, image_url: str, category_id: str) -> bool:
+def add_product(name: str, price: int, image_url: Optional[str], category_id: str) -> bool:
     """Добавляет товар в базу данных"""
     conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
@@ -67,8 +68,7 @@ def get_categories() -> Dict[str, str]:
     cursor = conn.cursor()
     try:
         cursor.execute('SELECT category_id, name FROM categories')
-        categories = {row[0]: row[1] for row in cursor.fetchall()}
-        return categories
+        return {row[0]: row[1] for row in cursor.fetchall()}
     except sqlite3.Error as e:
         print(f"Ошибка при получении категорий: {e}")
         return {}
@@ -81,15 +81,10 @@ def get_all_categories() -> List[Dict]:
     cursor = conn.cursor()
     try:
         cursor.execute('SELECT id, category_id, name FROM categories')
-        categories = [
-            {
-                'id': row[0],
-                'category_id': row[1],
-                'name': row[2]
-            }
+        return [
+            {'id': row[0], 'category_id': row[1], 'name': row[2]}
             for row in cursor.fetchall()
         ]
-        return categories
     except sqlite3.Error as e:
         print(f"Ошибка при получении категорий: {e}")
         return []
@@ -105,7 +100,7 @@ def get_products_by_category(category_id: str) -> Dict[int, Dict]:
             'SELECT id, name, price, image_url FROM products WHERE category_id = ?',
             (category_id,)
         )
-        products = {
+        return {
             row[0]: {
                 'name': row[1],
                 'price': row[2],
@@ -114,7 +109,6 @@ def get_products_by_category(category_id: str) -> Dict[int, Dict]:
             }
             for row in cursor.fetchall()
         }
-        return products
     except sqlite3.Error as e:
         print(f"Ошибка при получении товаров: {e}")
         return {}
@@ -131,18 +125,17 @@ def get_all_products() -> List[Dict]:
             FROM products p
             JOIN categories c ON p.category_id = c.category_id
         ''')
-        products = [
+        return [
             {
                 'id': row[0],
                 'name': row[1],
                 'price': row[2],
                 'image_url': row[3],
-                'category_id': row[4],
+                'category': row[4],
                 'category_name': row[5]
             }
             for row in cursor.fetchall()
         ]
-        return products
     except sqlite3.Error as e:
         print(f"Ошибка при получении товаров: {e}")
         return []
@@ -155,16 +148,21 @@ def get_product(product_id: int) -> Optional[Dict]:
     cursor = conn.cursor()
     try:
         cursor.execute(
-            'SELECT name, price, image_url, category_id FROM products WHERE id = ?',
+            '''SELECT p.id, p.name, p.price, p.image_url, p.category_id, c.name as category_name
+            FROM products p
+            JOIN categories c ON p.category_id = c.category_id
+            WHERE p.id = ?''',
             (product_id,)
         )
         row = cursor.fetchone()
         if row:
             return {
-                'name': row[0],
-                'price': row[1],
-                'image_url': row[2],
-                'category': row[3]
+                'id': row[0],
+                'name': row[1],
+                'price': row[2],
+                'image_url': row[3],
+                'category': row[4],
+                'category_name': row[5]
             }
         return None
     except sqlite3.Error as e:
@@ -190,33 +188,12 @@ def update_category(category_id: str, new_name: str) -> bool:
     finally:
         conn.close()
 
-def update_product(product_id: int, name: str, price: int, image_url: str) -> bool:
-    """Обновляет информацию о товаре"""
-    conn = sqlite3.connect('shop.db')
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            '''UPDATE products 
-            SET name = ?, price = ?, image_url = ? 
-            WHERE id = ?''',
-            (name, price, image_url, product_id)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-    except sqlite3.Error as e:
-        print(f"Ошибка при обновлении товара: {e}")
-        return False
-    finally:
-        conn.close()
-
 def delete_category(category_id: str) -> bool:
     """Удаляет категорию (и все связанные товары)"""
     conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     try:
-        # Удаляем сначала все товары в этой категории
         cursor.execute('DELETE FROM products WHERE category_id = ?', (category_id,))
-        # Затем удаляем саму категорию
         cursor.execute('DELETE FROM categories WHERE category_id = ?', (category_id,))
         conn.commit()
         return True
@@ -249,13 +226,10 @@ def initialize_database():
     conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     try:
-        # Проверяем, есть ли уже данные
         cursor.execute('SELECT COUNT(*) FROM categories')
-        count = cursor.fetchone()[0]
-        
-        if count == 0:
+        if cursor.fetchone()[0] == 0:
             print("Добавление тестовых данных...")
-            # Добавляем категории
+            
             categories = [
                 ("STICKS", "Стики"),
                 ("BEER", "Пиво"),
@@ -274,18 +248,17 @@ def initialize_database():
                 categories
             )
             
-            # Добавляем товары
             products = [
-                ("Fiit Viola", 270, "images/Fiit_Viola.jpg", "STICKS"),
-                ("Corona Extra 0,35 л", 195, "images/Corona_extra.jpg", "BEER"),
-                ("Parliament Aqua Blue", 435, "images/Parliament.jpg", "CIGARETTES"),
-                ("Duffour Gascogne красное сухое 0,75 л.", 1500, "images/Duffour.jpg", "WINE"),
-                ("Jameson 0,7 л", 2300, "images/Jameson.jpg", "WHISKEY"),
-                ("Beluga Transatlantic 0,7 л", 2200, "images/Beluga.jpg", "VODKA"),
-                ("Ной Традиционный 5 лет 0,5 л", 1300, "images/Noi.jpg", "COGNAC"),
-                ("игристое Martini Prosecco белое сухое 0,75 л", 1550, "images/Martini.jpg", "CHAMPAGNE"),
-                ("Картофельные чипсы Lay's Сметана и лук 140 г", 230, "images/Lays.jpg", "SNACKS"),
-                ("HQD NEO PRO 18000 Triple Berry (Тройная Ягода)", 1620, "images/HQD.jpg", "HQD")
+                ("Fiit Viola", 270, "Fiit_Viola.jpg", "STICKS"),
+                ("Corona Extra 0,35 л", 195, "Corona_extra.jpg", "BEER"),
+                ("Parliament Aqua Blue", 435, "Parliament.jpg", "CIGARETTES"),
+                ("Duffour Gascogne красное сухое 0,75 л.", 1500, "Duffour.jpg", "WINE"),
+                ("Jameson 0,7 л", 2300, "Jameson.jpg", "WHISKEY"),
+                ("Beluga Transatlantic 0,7 л", 2200, "Beluga.jpg", "VODKA"),
+                ("Ной Традиционный 5 лет 0,5 л", 1300, "Noi.jpg", "COGNAC"),
+                ("игристое Martini Prosecco белое сухое 0,75 л", 1550, "Martini.jpg", "CHAMPAGNE"),
+                ("Картофельные чипсы Lay's Сметана и лук 140 г", 230, "Lays.jpg", "SNACKS"),
+                ("HQD NEO PRO 18000 Triple Berry (Тройная Ягода)", 1620, "HQD.jpg", "HQD")
             ]
             
             cursor.executemany(
@@ -300,6 +273,42 @@ def initialize_database():
     except sqlite3.Error as e:
         print(f"Ошибка при инициализации базы данных: {e}")
         conn.rollback()
+    finally:
+        conn.close()
+
+def update_product(
+    product_id: int,
+    name: Optional[str] = None,
+    price: Optional[int] = None,
+    image_url: Optional[str] = None,
+    category_id: Optional[str] = None
+) -> bool:
+    """Обновляет информацию о товаре"""
+    conn = sqlite3.connect('shop.db')
+    cursor = conn.cursor()
+    try:
+        # Получаем текущие данные товара
+        current_data = get_product(product_id)
+        if not current_data:
+            return False
+
+        # Подготавливаем новые значения
+        new_name = name if name is not None else current_data['name']
+        new_price = price if price is not None else current_data['price']
+        new_image_url = image_url if image_url is not None else current_data['image_url']
+        new_category_id = category_id if category_id is not None else current_data['category']
+
+        cursor.execute(
+            '''UPDATE products 
+            SET name = ?, price = ?, image_url = ?, category_id = ?
+            WHERE id = ?''',
+            (new_name, new_price, new_image_url, new_category_id, product_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except sqlite3.Error as e:
+        print(f"Ошибка при обновлении товара: {e}")
+        return False
     finally:
         conn.close()
 

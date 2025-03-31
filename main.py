@@ -1,4 +1,4 @@
-from config import BOT_TOKEN
+from config import BOT_TOKEN, IMAGE_FOLDER
 import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -17,6 +17,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from database import get_categories, get_products_by_category, get_product, initialize_database
 import os
+from admin import setup_admin_handlers
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -284,36 +285,31 @@ async def edit_item(callback: types.CallbackQuery):
         f"Итого: {total_price} Руб."
     )
     
-    # Создаем клавиатуру для редактирования с новой структурой
+    # Создаем клавиатуру для редактирования
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        # Первая строка: цена * количество = итоговая цена
         [
             InlineKeyboardButton(
                 text=f"{product['price']} Руб × {quantity} = {total_price} Руб", 
                 callback_data="no_action"
             )
         ],
-        # Вторая строка: кнопки - + Удалить
         [
             InlineKeyboardButton(text="-", callback_data=f"dec_item_{product_id}"),
             InlineKeyboardButton(text="+", callback_data=f"inc_item_{product_id}"),
             InlineKeyboardButton(text="Удалить", callback_data=f"del_item_{product_id}")
         ],
-        # Третья строка: Оформить заказ
         [
             InlineKeyboardButton(text="Оформить заказ", callback_data="checkout")
         ],
-        # Четвертая строка: Сохранить и вернуться в корзину
         [
             InlineKeyboardButton(text="Сохранить и вернуться в корзину", callback_data="back_to_cart_from_edit")
         ]
     ])
     
     try:
-        # Проверяем, есть ли фото товара
-        image_path = product.get('image_url')
+        # Формируем полный путь к изображению
+        image_path = os.path.join(IMAGE_FOLDER, product['image_url']) if product.get('image_url') else None
         
-        # Если это первое открытие товара (не редактирование)
         if not callback.message.photo and image_path and os.path.exists(image_path):
             photo = FSInputFile(image_path)
             await callback.message.delete()
@@ -323,19 +319,14 @@ async def edit_item(callback: types.CallbackQuery):
                 caption=text,
                 reply_markup=keyboard
             )
-            # Сохраняем ID сообщения
-            if user_id not in user_data:
-                user_data[user_id] = {'main_message_id': None, 'other_messages': [], 'cart': {}}
             user_data[user_id]['other_messages'].append(sent_message.message_id)
         else:
-            # Если сообщение уже содержит фото - редактируем только подпись
             if callback.message.photo:
                 await callback.message.edit_caption(
                     caption=text,
                     reply_markup=keyboard
                 )
             else:
-                # Если фото нет - редактируем текст сообщения
                 await callback.message.edit_text(
                     text=text,
                     reply_markup=keyboard
@@ -550,62 +541,81 @@ async def back_to_categories(callback: types.CallbackQuery):
     )
     user_data[user_id]['other_messages'].append(sent_message.message_id)
     await callback.answer()
-
+    
 @dp.callback_query(F.data.startswith("product_"))
 async def show_product(callback: types.CallbackQuery):
     """Показ информации о товаре"""
-    user_id = callback.from_user.id
-    product_id = int(callback.data.split("_")[1])
-    product = get_product(product_id)
-    
-    if not product:
-        await callback.answer("Товар не найден")
-        return
-    
-    current_quantity = user_data[user_id].get('cart', {}).get(product_id, 0)
-    
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="-", callback_data=f"decrease_{product_id}"),
-            InlineKeyboardButton(text=str(current_quantity), callback_data="no_action"), 
-            InlineKeyboardButton(text="+", callback_data=f"increase_{product_id}")
-        ],
-        [InlineKeyboardButton(text="Добавить в корзину", callback_data=f"add_{product_id}")],
-        [
-            InlineKeyboardButton(text="Добавили? Оформляем заказ?", callback_data="checkout")
-        ],
-        [InlineKeyboardButton(text="... или продолжить покупки?", callback_data="continue_shopping")],
-        [InlineKeyboardButton(text="Назад", callback_data=f"category_{product['category']}")]
-    ])
-    
-    image_path = product.get('image_url')
-    
     try:
-        if image_path and os.path.exists(image_path):
-            photo = FSInputFile(image_path)
-            await callback.message.delete()
-            sent_message = await bot.send_photo(
-                chat_id=callback.message.chat.id,
-                photo=photo,
-                caption=f"<b>{product['name']}</b>\n\nЦена: {product['price']}₽",
-                reply_markup=keyboard
-            )
-        else:
-            await callback.message.delete()
-            sent_message = await bot.send_message(
-                chat_id=callback.message.chat.id,
-                text=f"<b>{product['name']}</b>\n\nЦена: {product['price']}₽",
-                reply_markup=keyboard
-            )
+        user_id = callback.from_user.id
+        product_id = int(callback.data.split("_")[1])
+        product = get_product(product_id)
         
+        if not product:
+            await callback.answer("Товар не найден")
+            return
+
+        # Логирование для отладки
+        logger.info(f"Showing product: {product}")
+        
+        current_quantity = user_data.get(user_id, {}).get('cart', {}).get(product_id, 0)
+        
+        # Создаем клавиатуру
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="-", callback_data=f"decrease_{product_id}"),
+                InlineKeyboardButton(text=str(current_quantity), callback_data="no_action"),
+                InlineKeyboardButton(text="+", callback_data=f"increase_{product_id}")
+            ],
+            [InlineKeyboardButton(text="Добавить в корзину", callback_data=f"add_{product_id}")],
+            [InlineKeyboardButton(text="Добавили? Оформляем заказ?", callback_data="checkout")],
+            [InlineKeyboardButton(text="... или продолжить покупки?", callback_data="continue_shopping")],
+            [InlineKeyboardButton(text="Назад", callback_data=f"category_{product['category']}")]
+        ])
+
+        # Пытаемся отправить фото, если оно есть
+        if product.get('image_url'):
+            image_path = os.path.join(IMAGE_FOLDER, product['image_url'])
+            logger.info(f"Trying to load image from: {image_path}")
+            
+            if os.path.exists(image_path):
+                try:
+                    await callback.message.delete()
+                    photo = FSInputFile(image_path)
+                    sent_message = await bot.send_photo(
+                        chat_id=callback.message.chat.id,
+                        photo=photo,
+                        caption=f"<b>{product['name']}</b>\n\nЦена: {product['price']}₽",
+                        reply_markup=keyboard
+                    )
+                    
+                    # Сохраняем ID сообщения
+                    if user_id not in user_data:
+                        user_data[user_id] = {'main_message_id': None, 'other_messages': [], 'cart': {}}
+                    user_data[user_id]['other_messages'].append(sent_message.message_id)
+                    
+                    await callback.answer()
+                    return
+                except Exception as e:
+                    logger.error(f"Error sending photo: {e}")
+
+        # Если фото нет или не удалось отправить - отправляем текстовое сообщение
+        await callback.message.delete()
+        sent_message = await bot.send_message(
+            chat_id=callback.message.chat.id,
+            text=f"<b>{product['name']}</b>\n\nЦена: {product['price']}₽",
+            reply_markup=keyboard
+        )
+        
+        # Сохраняем ID сообщения
         if user_id not in user_data:
             user_data[user_id] = {'main_message_id': None, 'other_messages': [], 'cart': {}}
         user_data[user_id]['other_messages'].append(sent_message.message_id)
-    except Exception as e:
-        logger.error(f"Ошибка при отправке товара: {e}")
-        await callback.answer("Произошла ошибка при отображении товара")
-    finally:
+        
         await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error in show_product: {e}", exc_info=True)
+        await callback.answer("Произошла ошибка при отображении товара")
 
 @dp.callback_query(F.data == "continue_shopping")
 async def continue_shopping(callback: types.CallbackQuery):
@@ -972,7 +982,7 @@ async def add_order_to_sheet(user_data: dict, user_id: int):
             if product:
                 product_total = quantity * product['price']
                 products.append(
-                    f"• {product['name']} ({quantity}шт × {product['price']}₽ = {product_total}₽"
+                    f"• {product['name']} ({quantity}шт × {product['price']}₽ = {product_total}₽)"
                 )
                 total += product_total
         
@@ -1007,6 +1017,7 @@ async def add_order_to_sheet(user_data: dict, user_id: int):
     
 async def main():
     initialize_database()
+    await setup_admin_handlers(dp)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
