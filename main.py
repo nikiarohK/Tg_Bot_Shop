@@ -133,11 +133,12 @@ async def show_delivery_info(message: types.Message):
     await delete_user_message(message)
     
     delivery_text = (
-        "Доставка в пределах МКАД 0 рублей!\n\n"
-        "Доставка от 15 минут!\n\n"
-        "Минимальная сумма заказа от 400 рублей!\n\n"
-        "ОПЛАТА наличными, переводом, по факту получения заказа!\n\n"
-        "КУРЬЕР МОЖЕТ ПОПРОСИТЬ ПЕРЕВОД ЗАРАНЕЕ, ЕСЛИ ЗАКАЗЫВАЕТЕ ПЕРВЫЙ РАЗ ЧЕРЕЗ НАШ БОТ!"
+        "MSK_BAR 24/7\n\n"
+        "Минимальная сумма заказа 600 Руб.\n\n"
+        "ДОСТАВКА БЕСПЛТАНАЯ в пределах МКАДА!\n\n"
+        "ДОСТАВКА за МКАД от 390-900 Руб. Точную сумму озвучит менеджер!\n\n"
+        "ОПЛАТА наличными,переводом,по факту получения заказа!\n\n"
+        "@MSK_BAR777_BOT"
     )
     
     sent_message = await bot.send_message(chat_id, delivery_text)
@@ -155,7 +156,7 @@ async def show_phone_number(message: types.Message):
     
     sent_message = await bot.send_message(
         chat_id,
-        "Чтобы связаться с оператором, позвоните:\n<b>+7 (499) 350-84-17</b>"
+        "Ведутся технические работы"
     )
     user_data[user_id]['other_messages'].append(sent_message.message_id)
 
@@ -169,7 +170,7 @@ async def show_online_chat(message: types.Message):
     await clean_other_messages(chat_id, user_id)
     await delete_user_message(message)
     
-    sent_message = await bot.send_message(chat_id, "Перейдите в чат с оператором: @nikiarohk")
+    sent_message = await bot.send_message(chat_id, "Ведутся технические работы")
     user_data[user_id]['other_messages'].append(sent_message.message_id)
 
 @dp.message(F.text == "Корзина")
@@ -499,7 +500,7 @@ async def show_category_products(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     for product_id, product in category_products.items():
         builder.add(InlineKeyboardButton(
-            text=f"{product['name']} - {product['price']}₽",
+            text=f"{product['price']}₽ - {product['name']}",
             callback_data=f"product_{product_id}"
         ))
     builder.adjust(1)
@@ -792,7 +793,7 @@ async def checkout(callback: types.CallbackQuery, state: FSMContext):
             total += quantity * product['price']
     
     order_text += f"\nИтого: {total}₽\n\n"
-    order_text += "Пожалуйста, введите ваш номер телефона в формате +79991234567:"
+    order_text += "Пожалуйста, введите ваш номер телефона в формате 89991234567:"
     
     # Создаем клавиатуру только с кнопкой "Вернуться в главное меню"
     keyboard = ReplyKeyboardMarkup(
@@ -824,7 +825,7 @@ async def process_manual_phone(message: types.Message, state: FSMContext):
     
     # Простая валидация номера
     if not phone_number.replace('+', '').isdigit() or len(phone_number.replace('+', '')) < 10:
-        await message.reply("Пожалуйста, введите корректный номер телефона (например, +79991234567):")
+        await message.reply("Пожалуйста, введите корректный номер телефона (например, 89991234567):")
         return
     
     # Сохраняем номер телефона
@@ -834,8 +835,8 @@ async def process_manual_phone(message: types.Message, state: FSMContext):
     user_data[user_id]['phone'] = phone_number
     
     # Запрашиваем адрес доставки
-    await message.reply(
-        "Спасибо! Теперь укажите, пожалуйста, адрес доставки:",
+    await message.reply( 
+        "Спасибо ! Теперь адрес доставки.\nПРИМЕР: Ленинский проспект 78 к 2 подъезд 1 кв 5",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="Вернуться в главное меню")]
@@ -857,7 +858,7 @@ async def save_phone_and_request_address(message: types.Message, phone_number: s
     
     # Запрашиваем адрес доставки
     await message.reply(
-        "Спасибо! Теперь укажите, пожалуйста, адрес доставки:",
+        "Спасибо ! Теперь адрес доставки.\nПРИМЕР: Ленинский проспект 78 к 2 подъезд 1 кв 5",
         reply_markup=ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="Вернуться в главное меню")]
@@ -888,7 +889,7 @@ async def process_address(message: types.Message, state: FSMContext):
     user_data[user_id]['address'] = address
     
     # Формируем финальное сообщение с заказом
-    order_text = "Ваш заказ принят!\n\n"
+    order_text = "Заказ принят! Начинаем собирать!\n\n"
     total = 0
     for product_id, quantity in user_data[user_id]['cart'].items():
         product = get_product(product_id)
@@ -899,7 +900,7 @@ async def process_address(message: types.Message, state: FSMContext):
     order_text += f"\nИтого: {total}₽\n\n"
     order_text += f"Номер телефона: {user_data[user_id].get('phone', 'не указан')}\n"
     order_text += f"Адрес доставки: {address}\n\n"
-    order_text += "С вами свяжется оператор для подтверждения заказа."
+    order_text += "Курьер может позвонить для уточнения деталей заказа!"
     
     # Пытаемся сохранить заказ в Google Таблицу
     success = await add_order_to_sheet(user_data, user_id)
