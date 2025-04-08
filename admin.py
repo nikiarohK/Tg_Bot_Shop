@@ -26,10 +26,14 @@ from config import ADMIN_ID, IMAGE_FOLDER
 import os
 import shutil
 import logging
+from math import ceil
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Константы для пагинации
+ITEMS_PER_PAGE = 5  # Количество элементов на странице
 
 # Создаем папку для изображений, если ее нет
 os.makedirs(IMAGE_FOLDER, exist_ok=True)
@@ -79,7 +83,7 @@ async def setup_admin_handlers(dp):
         ))
         builder.add(InlineKeyboardButton(
             text="Список категорий",
-            callback_data="admin_list_categories"
+            callback_data="admin_list_categories_page_0"
         ))
         builder.adjust(1)
         return builder.as_markup()
@@ -92,12 +96,12 @@ async def setup_admin_handlers(dp):
         ))
         builder.add(InlineKeyboardButton(
             text="Список товаров",
-            callback_data="admin_list_products"
+            callback_data="admin_list_products_page_0"
         ))
         builder.adjust(1)
         return builder.as_markup()
     
-    def get_category_actions_keyboard(category_id: str):
+    def get_category_actions_keyboard(category_id: str, page: int = 0):
         builder = InlineKeyboardBuilder()
         builder.add(InlineKeyboardButton(
             text="Изменить название",
@@ -109,12 +113,12 @@ async def setup_admin_handlers(dp):
         ))
         builder.add(InlineKeyboardButton(
             text="Назад к списку",
-            callback_data="admin_list_categories"
+            callback_data=f"admin_list_categories_page_{page}"
         ))
         builder.adjust(1)
         return builder.as_markup()
     
-    def get_product_actions_keyboard(product_id: int):
+    def get_product_actions_keyboard(product_id: int, page: int = 0):
         builder = InlineKeyboardBuilder()
         builder.add(InlineKeyboardButton(
             text="Изменить товар",
@@ -126,7 +130,7 @@ async def setup_admin_handlers(dp):
         ))
         builder.add(InlineKeyboardButton(
             text="Назад к списку",
-            callback_data="admin_list_products"
+            callback_data=f"admin_list_products_page_{page}"
         ))
         builder.adjust(1)
         return builder.as_markup()
@@ -138,6 +142,32 @@ async def setup_admin_handlers(dp):
             callback_data="admin_back_to_main"
         ))
         return builder.as_markup()
+
+    def build_pagination_keyboard(page: int, total_pages: int, prefix: str):
+        builder = InlineKeyboardBuilder()
+        
+        # Горизонтальная пагинация
+        if page > 0:
+            builder.add(InlineKeyboardButton(
+                text="⬅ Назад",
+                callback_data=f"{prefix}{page - 1}"
+            ))
+        
+        builder.add(InlineKeyboardButton(
+            text=f"{page + 1}/{total_pages}",
+            callback_data="no_action"
+        ))
+        
+        if page < total_pages - 1:
+            builder.add(InlineKeyboardButton(
+                text="Вперед ➡",
+                callback_data=f"{prefix}{page + 1}"
+            ))
+        
+        # Все кнопки пагинации в один ряд
+        builder.adjust(3)
+        
+        return builder
 
     @dp.message(Command("admin"))
     async def cmd_admin(message: types.Message):
@@ -217,10 +247,15 @@ async def setup_admin_handlers(dp):
         
         await state.clear()
     
-    @dp.callback_query(F.data == "admin_list_categories")
+    @dp.callback_query(F.data.startswith("admin_list_categories_page_"))
     async def admin_list_categories_callback(callback: types.CallbackQuery):
         if not is_admin(callback.from_user.id):
             return
+        
+        try:
+            page = int(callback.data.split("_")[-1])
+        except:
+            page = 0
         
         categories = get_all_categories()
         if not categories:
@@ -230,27 +265,46 @@ async def setup_admin_handlers(dp):
             )
             return
         
-        text = "Список категорий:\n\n"
-        for category in categories:
+        total_pages = ceil(len(categories) / ITEMS_PER_PAGE)
+        if page >= total_pages:
+            page = total_pages - 1
+        
+        start_idx = page * ITEMS_PER_PAGE
+        end_idx = start_idx + ITEMS_PER_PAGE
+        current_categories = categories[start_idx:end_idx]
+        
+        text = f"Список категорий (Страница {page + 1}/{total_pages}):\n\n"
+        for category in current_categories:
             text += f"{category['name']} (ID: {category['category_id']})\n"
         
-        await callback.message.answer(
-            text,
-            reply_markup=get_back_to_admin_keyboard()
+        # Создаем клавиатуру с пагинацией
+        pagination_builder = build_pagination_keyboard(
+            page, total_pages, "admin_list_categories_page_"
         )
         
-        builder = InlineKeyboardBuilder()
-        for category in categories:
-            builder.add(InlineKeyboardButton(
+        # Создаем клавиатуру с категориями
+        categories_builder = InlineKeyboardBuilder()
+        for category in current_categories:
+            categories_builder.add(InlineKeyboardButton(
                 text=category['name'],
-                callback_data=f"admin_category_{category['category_id']}"
+                callback_data=f"admin_category_{category['category_id']}_{page}"
             ))
-        builder.adjust(2)
+        categories_builder.adjust(2)
         
-        await callback.message.answer(
-            "Выберите категорию для действий:",
-            reply_markup=builder.as_markup()
-        )
+        # Объединяем обе клавиатуры
+        pagination_builder.attach(categories_builder)
+        
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=pagination_builder.as_markup()
+            )
+        except:
+            await callback.message.answer(
+                text=text,
+                reply_markup=pagination_builder.as_markup()
+            )
+        
         await callback.answer()
     
     @dp.callback_query(F.data.startswith("admin_category_"))
@@ -258,7 +312,10 @@ async def setup_admin_handlers(dp):
         if not is_admin(callback.from_user.id):
             return
         
-        category_id = callback.data.split("_")[2]
+        parts = callback.data.split("_")
+        category_id = parts[2]
+        page = int(parts[3]) if len(parts) > 3 else 0
+        
         categories = get_all_categories()
         category = next((c for c in categories if c['category_id'] == category_id), None)
         
@@ -268,7 +325,7 @@ async def setup_admin_handlers(dp):
         
         await callback.message.answer(
             f"Категория: {category['name']}\nID: {category['category_id']}",
-            reply_markup=get_category_actions_keyboard(category_id)
+            reply_markup=get_category_actions_keyboard(category_id, page)
         )
         await callback.answer()
     
@@ -416,10 +473,16 @@ async def setup_admin_handlers(dp):
         
         await state.clear()
     
-    @dp.callback_query(F.data == "admin_list_products")
+
+    @dp.callback_query(F.data.startswith("admin_list_products_page_"))
     async def admin_list_products_callback(callback: types.CallbackQuery):
         if not is_admin(callback.from_user.id):
             return
+        
+        try:
+            page = int(callback.data.split("_")[-1])
+        except:
+            page = 0
         
         products = get_all_products()
         if not products:
@@ -429,27 +492,48 @@ async def setup_admin_handlers(dp):
             )
             return
         
+        total_pages = ceil(len(products) / ITEMS_PER_PAGE)
+        if page >= total_pages:
+            page = total_pages - 1
+        
+        start_idx = page * ITEMS_PER_PAGE
+        end_idx = start_idx + ITEMS_PER_PAGE
+        current_products = products[start_idx:end_idx]
+        
         text = "Список товаров:\n\n"
-        for product in products:
-            text += f"{product['name']} - {product['price']}Р (ID: {product['id']})\n"
+        for product in current_products:
+            text += f"• {product['name']} - {product['price']}Р (ID: {product['id']})\n"
         
-        await callback.message.answer(
-            text,
-            reply_markup=get_back_to_admin_keyboard()
+        # Создаем клавиатуру с пагинацией (горизонтально)
+        pagination_builder = build_pagination_keyboard(
+            page, total_pages, "admin_list_products_page_"
         )
         
-        builder = InlineKeyboardBuilder()
-        for product in products:
-            builder.add(InlineKeyboardButton(
-                text=product['name'],
-                callback_data=f"admin_product_{product['id']}"
+        # Создаем клавиатуру с товарами (горизонтально)
+        products_builder = InlineKeyboardBuilder()
+        for product in current_products:
+            products_builder.add(InlineKeyboardButton(
+                text=f"{product['name']}",
+                callback_data=f"admin_product_{product['id']}_{page}"
             ))
-        builder.adjust(1)
         
-        await callback.message.answer(
-            "Выберите товар для действий:",
-            reply_markup=builder.as_markup()
-        )
+        # 5 товара в ряд
+        products_builder.adjust(5)
+        
+        # Объединяем обе клавиатуры
+        pagination_builder.attach(products_builder)
+        
+        try:
+            await callback.message.edit_text(
+                text=text,
+                reply_markup=pagination_builder.as_markup()
+            )
+        except:
+            await callback.message.answer(
+                text=text,
+                reply_markup=pagination_builder.as_markup()
+            )
+        
         await callback.answer()
     
     @dp.callback_query(F.data.startswith("admin_product_"))
@@ -457,7 +541,10 @@ async def setup_admin_handlers(dp):
         if not is_admin(callback.from_user.id):
             return
         
-        product_id = int(callback.data.split("_")[2])
+        parts = callback.data.split("_")
+        product_id = int(parts[2])
+        page = int(parts[3]) if len(parts) > 3 else 0
+        
         product = get_product(product_id)
         
         if not product:
@@ -474,12 +561,12 @@ async def setup_admin_handlers(dp):
                 chat_id=callback.message.chat.id,
                 photo=photo,
                 caption=f"Товар: {product['name']}\nЦена: {product['price']}Р\nID: {product_id}",
-                reply_markup=get_product_actions_keyboard(product_id)
+                reply_markup=get_product_actions_keyboard(product_id, page)
             )
         else:
             await callback.message.edit_text(
                 f"Товар: {product['name']}\nЦена: {product['price']}Р\nID: {product_id}",
-                reply_markup=get_product_actions_keyboard(product_id)
+                reply_markup=get_product_actions_keyboard(product_id, page)
             )
         
         await callback.answer()
@@ -692,4 +779,8 @@ async def setup_admin_handlers(dp):
             "Админ-панель:",
             reply_markup=get_admin_keyboard()
         )
+        await callback.answer()
+    
+    @dp.callback_query(F.data == "no_action")
+    async def no_action_handler(callback: types.CallbackQuery):
         await callback.answer()
