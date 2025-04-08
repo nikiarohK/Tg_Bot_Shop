@@ -92,12 +92,12 @@ def get_all_categories() -> List[Dict]:
         conn.close()
 
 def get_products_by_category(category_id: str) -> Dict[int, Dict]:
-    """Возвращает товары в категории"""
+    """Возвращает товары в категории, отсортированные по цене (от дешевых к дорогим)"""
     conn = sqlite3.connect('shop.db')
     cursor = conn.cursor()
     try:
         cursor.execute(
-            'SELECT id, name, price, image_url FROM products WHERE category_id = ?',
+            'SELECT id, name, price, image_url FROM products WHERE category_id = ? ORDER BY price ASC',
             (category_id,)
         )
         return {
